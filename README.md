@@ -16,19 +16,28 @@ GPU telemetry collector and helper scripts.
 
 ### Temperature plot
 
-![GPU temperature plot](docs/images/gpu-temp.png)
+Fan 100% (baseline):
+
+![GPU temperature plot (fan 100%)](docs/images/gpu-temp-fan100.png)
+
+Fan 25%:
+
+![GPU temperature plot (fan 25%)](docs/images/gpu-temp-fan25.png)
 
 Generate/update the plot:
 
 ```bash
 uv sync
-uv run ./bin/plot_temp.py --hours 24
-```
 
-Exclude `prod` rows (e.g., focus on benchmark / non-prod ranges):
+# fan 100% (baseline)
+uv run ./bin/plot_temp.py --hours 24 --exclude-prod \
+  --include-memo "fan=100%" \
+  --out docs/images/gpu-temp-fan100.png
 
-```bash
-uv run ./bin/plot_temp.py --hours 24 --exclude-prod
+# fan 25%
+uv run ./bin/plot_temp.py --hours 24 --exclude-prod \
+  --include-memo "fan=25%" \
+  --out docs/images/gpu-temp-fan25.png
 ```
 
 ### Setup
