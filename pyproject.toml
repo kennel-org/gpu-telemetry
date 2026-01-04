@@ -1,0 +1,9 @@
+[project]
+name = "gpu-telemetry"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "matplotlib>=3.8",
+  "psycopg>=3.2",
+  "python-dotenv>=1.0",
+]
