@@ -12,6 +12,11 @@ GPU telemetry collector and helper scripts.
 - English: `docs/operations.en.md`
 - 日本語: `docs/operations.ja.md`
 
+P40 bring-up (until `nvidia-smi` works; Ubuntu 22.04):
+
+- English: `docs/p40-nvidia-smi.ubuntu22.en.md`
+- 日本語: `docs/p40-nvidia-smi.ubuntu22.ja.md`
+
 ## Images
 
 ### Temperature plot

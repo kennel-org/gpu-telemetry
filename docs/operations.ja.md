@@ -31,6 +31,10 @@
 
 ## 0. 事前確認（GPU認識）
 
+`nvidia-smi` で P40 が認識できる状態になるまでの手順は、以下を参照してください。
+
+- `docs/p40-nvidia-smi.ubuntu22.ja.md`
+
 ```bash
 nvidia-smi
 nvidia-smi -L

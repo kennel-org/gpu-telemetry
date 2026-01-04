@@ -31,6 +31,10 @@ Optional tools:
 
 ## 0. Pre-check (GPU enumeration)
 
+If you cannot make the P40 visible to `nvidia-smi` yet, see:
+
+- `docs/p40-nvidia-smi.ubuntu22.en.md`
+
 ```bash
 nvidia-smi
 nvidia-smi -L
