@@ -13,8 +13,16 @@ This document is a zero-based runbook for collecting GPU telemetry (focused on t
 - **Host**: Minisforum X1 AI
 - **eGPU dock**: DEG1 eGPU
 - **GPU**: NVIDIA Tesla P40
-- **PSU**: Kuroutoshikou 600W ATX PSU ¥4598-
-  - Price as of Dec 2025
+- **PSU**: Kuroutoshikou 600W ATX PSU
+
+Reference prices (as of Dec 2025):
+
+- Nvidia Tesla P40 24GB (used) ¥30,345-
+- Minisforum X1 AI 32GB/1TB SSD ¥107,993-
+- Minisforum DEG1 eGPU Dock ¥11,381-
+- 600W ATX PSU ¥4,598-
+- Akizuki 12cm fan ¥450-
+  - https://akizukidenshi.com/catalog/g/g114359/
 
 ## Prerequisites
 

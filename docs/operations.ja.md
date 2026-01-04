@@ -13,8 +13,16 @@
 - **Host**: Minisforum X1 AI
 - **eGPU Dock**: DEG1 eGPU
 - **GPU**: NVIDIA Tesla P40
-- **電源**: 玄人志向 600W ATX電源 \4598-
-  - 価格は2025年12月時点
+- **電源**: 玄人志向 600W ATX電源
+
+参考価格（2025年12月時点）:
+
+- Nvidia Tesla P40 24GB(中古) ¥30,345-
+- Minisforum X1 AI 32GB/1TB SSD ¥107,993-
+- Minisforum DEG1 eGPU Dock ¥11,381-
+- 600W ATX電源 ¥4,598-
+- 秋月 12cm ファン ¥450-
+  - https://akizukidenshi.com/catalog/g/g114359/
 
 ## 前提条件
 

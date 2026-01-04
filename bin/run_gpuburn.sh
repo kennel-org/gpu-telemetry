@@ -18,6 +18,7 @@ COOLDOWN_SEC="0"
 COOLDOWN_MEMO="cooldown idle (post gpu-burn)"
 FINAL_TAG="prod"
 FINAL_MEMO="prod (normal usage)"
+MEMO_SUFFIX=""
 TMUX_SESSION="gpubench"
 USE_TMUX="0"
 FORCE_ENGLISH="1"
@@ -31,12 +32,14 @@ Usage:
                  [--pre-idle-sec 0] [--pre-idle-memo "memo"]
                  [--cooldown-sec 0] [--cooldown-memo "memo"]
                  [--final-tag prod] [--final-memo "memo"]
+                 [--memo-suffix "suffix"]
                  [--tmux-session gpubench] [--tmux|--no-tmux]
                  [--english|--no-english]
                  [--diag|--no-diag]
 
 Examples:
   run_gpuburn.sh --sec 900 --pre-tag bench --pre-memo "gpu-burn 900s fan=MAX" --tmux
+  run_gpuburn.sh --sec 900 --memo-suffix "fan=100%" --tmux
   run_gpuburn.sh --sec 60 --no-tmux --no-diag
 USAGE
 }
@@ -69,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --cooldown-memo) COOLDOWN_MEMO="${2:-}"; shift 2;;
     --final-tag) FINAL_TAG="${2:-}"; shift 2;;
     --final-memo) FINAL_MEMO="${2:-}"; shift 2;;
+    --memo-suffix) MEMO_SUFFIX="${2:-}"; shift 2;;
     --tmux-session) TMUX_SESSION="${2:-}"; shift 2;;
     --tmux) USE_TMUX="1"; shift;;
     --no-tmux) USE_TMUX="0"; shift;;
@@ -80,6 +84,26 @@ while [[ $# -gt 0 ]]; do
     *) err "Unknown arg: $1"; usage; script_exit 2;;
   esac
 done
+
+append_suffix() {
+  local memo="$1"
+  local suffix="$2"
+  if [[ -z "${suffix}" ]]; then
+    echo "${memo}"
+    return 0
+  fi
+  if [[ "${memo}" == *"${suffix}"* ]]; then
+    echo "${memo}"
+    return 0
+  fi
+  echo "${memo} ${suffix}"
+}
+
+PRE_MEMO="$(append_suffix "${PRE_MEMO}" "${MEMO_SUFFIX}")"
+POST_MEMO="$(append_suffix "${POST_MEMO}" "${MEMO_SUFFIX}")"
+PRE_IDLE_MEMO="$(append_suffix "${PRE_IDLE_MEMO}" "${MEMO_SUFFIX}")"
+COOLDOWN_MEMO="$(append_suffix "${COOLDOWN_MEMO}" "${MEMO_SUFFIX}")"
+FINAL_MEMO="$(append_suffix "${FINAL_MEMO}" "${MEMO_SUFFIX}")"
 
 # --- Validation ---
 [[ -x "${STATUS_CMD}" ]] || { err "Missing status script: ${STATUS_CMD}"; script_exit 2; }
