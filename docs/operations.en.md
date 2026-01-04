@@ -250,6 +250,16 @@ Example (exclude `prod` to focus on benchmark/non-prod ranges):
 uv run ./bin/plot_temp.py --hours 24 --exclude-prod
 ```
 
+Example (split benchmark runs by `status_memo`; repeatable):
+
+```bash
+# fan 100% (baseline)
+uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=100%" --out docs/images/gpu-temp-fan100.png
+
+# fan 25%
+uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=25%" --out docs/images/gpu-temp-fan25.png
+```
+
 ## 6. Spool and flush
 
 - `bin/collect_once.py` spools to `spool/` when DB insert fails

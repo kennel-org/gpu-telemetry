@@ -249,6 +249,16 @@ uv run ./bin/plot_temp.py --hours 24 --status-tag prod
 uv run ./bin/plot_temp.py --hours 24 --exclude-prod
 ```
 
+例（`status_memo` でベンチを切り分けて別名保存。複数指定可）:
+
+```bash
+# fan 100%（ベースライン）
+uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=100%" --out docs/images/gpu-temp-fan100.png
+
+# fan 25%
+uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=25%" --out docs/images/gpu-temp-fan25.png
+```
+
 ## 6. スプール（DB停止時の退避）と flush
 
 - `bin/collect_once.py` は DB INSERT 失敗時、`spool/` に JSON を退避します

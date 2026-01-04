@@ -22,6 +22,7 @@ class Row:
     gpu_name: str | None
     temp_c: int
     status_tag: str | None
+    status_memo: str | None
 
 
 JST = timezone(timedelta(hours=9))
@@ -63,6 +64,8 @@ def fetch_rows(
     host: str | None,
     status_tag: str | None,
     exclude_status_tags: list[str] | None,
+    include_memos: list[str] | None,
+    exclude_memos: list[str] | None,
 ) -> list[Row]:
     dsn = _build_dsn()
 
@@ -86,8 +89,25 @@ def fetch_rows(
         # Keep NULLs, exclude only matching tags
         where.append(f"(status_tag is null or status_tag not in ({', '.join(placeholders)}))")
 
+    if include_memos:
+        memo_clauses: list[str] = []
+        for i, s in enumerate(include_memos):
+            k = f"im{i}"
+            memo_clauses.append(f"status_memo ilike %({k})s")
+            params[k] = f"%{s}%"
+        where.append(f"({' or '.join(memo_clauses)})")
+
+    if exclude_memos:
+        memo_clauses = []
+        for i, s in enumerate(exclude_memos):
+            k = f"em{i}"
+            memo_clauses.append(f"status_memo not ilike %({k})s")
+            params[k] = f"%{s}%"
+        # Keep NULLs, exclude only matching memos
+        where.append(f"(status_memo is null or ({' and '.join(memo_clauses)}))")
+
     sql = (
-        "select ts, host, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag "
+        "select ts, host, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag, status_memo "
         "from telemetry.gpu_telemetry "
         f"where {' and '.join(where)} "
         "order by ts asc"
@@ -97,7 +117,7 @@ def fetch_rows(
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            for ts, host2, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag2 in cur.fetchall():
+            for ts, host2, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag2, status_memo2 in cur.fetchall():
                 out.append(
                     Row(
                         ts=ts,
@@ -107,6 +127,7 @@ def fetch_rows(
                         gpu_name=gpu_name,
                         temp_c=int(temp_c),
                         status_tag=status_tag2,
+                        status_memo=status_memo2,
                     )
                 )
     return out
@@ -169,6 +190,7 @@ def plot(rows: list[Row], out_path: Path, title: str | None) -> None:
             ax.plot(xs, ys, linewidth=1.8, color=c, alpha=0.95, label=label)
 
     ax.set_ylabel("Temperature (°C)")
+    ax.set_ylim(10, 100)
     ax.grid(True, alpha=0.3)
 
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=10))
@@ -219,6 +241,18 @@ def main() -> None:
         action="store_true",
         help="Exclude status_tag=prod (useful to focus on benchmark/non-prod ranges)",
     )
+    ap.add_argument(
+        "--include-memo",
+        action="append",
+        default=[],
+        help="Include only rows whose status_memo contains this substring (case-insensitive; repeatable)",
+    )
+    ap.add_argument(
+        "--exclude-memo",
+        action="append",
+        default=[],
+        help="Exclude rows whose status_memo contains this substring (case-insensitive; repeatable). NULL status_memo rows are kept.",
+    )
     ap.add_argument("--tz", default="jst", help="Timezone for x-axis and title (jst|utc). Default: jst")
     ap.add_argument("--title", help="Plot title")
 
@@ -250,6 +284,8 @@ def main() -> None:
         host=args.host,
         status_tag=args.status_tag,
         exclude_status_tags=exclude_tags,
+        include_memos=list(args.include_memo or []),
+        exclude_memos=list(args.exclude_memo or []),
     )
 
     start_local = _to_tz(start, args.tz)
@@ -265,6 +301,7 @@ def main() -> None:
             gpu_name=r.gpu_name,
             temp_c=r.temp_c,
             status_tag=r.status_tag,
+            status_memo=r.status_memo,
         )
         for r in rows
     ]
@@ -276,6 +313,10 @@ def main() -> None:
             base = f"{base} ({args.status_tag})"
         if exclude_tags:
             base = f"{base} (exclude: {','.join(exclude_tags)})"
+        if args.include_memo:
+            base = f"{base} (memo: {','.join(args.include_memo)})"
+        if args.exclude_memo:
+            base = f"{base} (memo-exclude: {','.join(args.exclude_memo)})"
         title = (
             f"{base}\n"
             f"{args.tz.upper()}: {start_local.isoformat(timespec='seconds')} - {end_local.isoformat(timespec='seconds')}"
