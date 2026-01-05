@@ -8,6 +8,10 @@
 - テレメトリが PostgreSQL に継続投入される（DB停止時は `spool/` に退避し、復旧後 flush される）
 - `gpu-burn` で負荷を掛け、温度上昇が DB に記録される
 
+注記:
+
+- 本ドキュメントは、ベンチ中も含めてテレメトリ収集が常時動作している（例: `systemd --user` の `gpu-telemetry.service` と `gpu-telemetry-flush.timer`）前提です。ベンチ用スクリプトは主に `status.json`（`status_tag`/`status_memo`）を更新し、後から DB/プロットを絞り込めるようにします。
+
 ## ハード構成（BOM）
 
 - **Host**: Minisforum X1 AI
@@ -180,6 +184,62 @@ cp ./status.json.example ./status.json
 - ベンチ前アイドル（`--pre-idle-sec`）とクールダウン（`--cooldown-sec`）を含めて、温度変化の前後を取りやすくできます
 - 最後に `prod`（通常使用）へ戻す運用にできます
 - ログは `./logs/` に保存されます
+
+ベンチ実行中も、バックグラウンドでテレメトリ収集が動作している前提です。
+
+### 4.3 LLM ベンチ（Ollama coding bench）
+
+Ollama の複数モデルを対象に、推論を流しつつ `status_tag`/`status_memo` をマーキングします（後で DB/プロットを絞り込む用）。CSV 出力は任意です。
+
+- スクリプト: `bin/run_ollama_coding_bench.sh`
+- 出力先（任意）: デフォルトは `./bench_results/bench_<model>.csv`（`--no-csv` で無効化）
+- モデル選定: `GET /api/tags` の一覧から `--coding-regex`（デフォルト: `(coder|starcoder|code)`）でフィルタし、baseline モデルも追加
+- 実行順: サイズ昇順（小→大）で実行し、digest 重複は除外
+- テレメトリのタグ付け:
+  - pre/post/cooldown は `idle`（memo はオプションで変更可）
+  - ベンチ本体は `bench` で memo が `ollama_<model>`
+
+前提:
+
+- Ollama が起動している（デフォルト: `http://127.0.0.1:11434`）
+- 必要コマンド: `curl`, `jq`, `awk`, `sed`
+- `status.json` が存在する（無い場合は `status.json.example` から作成）
+
+実行（タイマーでテレメトリ収集中なら、CSVなしが推奨）:
+
+```bash
+./bin/run_ollama_coding_bench.sh --no-csv
+```
+
+オプション例:
+
+```bash
+./bin/run_ollama_coding_bench.sh \
+  --no-csv \
+  --repeat 5 \
+  --num-predict 768 \
+  --temperature 0 \
+  --cooldown-sec 900 \
+  --out-dir ./bench_results
+```
+
+実行せずに対象モデルだけ確認:
+
+```bash
+./bin/run_ollama_coding_bench.sh --dry-run
+```
+
+CSV のカラム（モデルごと。CSV出力を有効にした場合）:
+
+- `model`
+- `run`
+- `prompt_id`
+- `load_s`
+- `prompt_tps`
+- `gen_tps`
+- `total_s`
+- `prompt_tokens`
+- `gen_tokens`
 
 ## 5. 結果確認
 
