@@ -4,6 +4,8 @@ status.json
 spool/
 logs/
 
+bench_results/
+
 *.log
 *.pyc
 __pycache__/

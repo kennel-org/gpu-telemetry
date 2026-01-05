@@ -8,6 +8,10 @@ This document is a zero-based runbook for collecting GPU telemetry (focused on t
 - Telemetry is continuously inserted into PostgreSQL (spool to `spool/` when DB is down; flush after recovery)
 - Run `gpu-burn` and confirm temperature increase is recorded in DB
 
+Note:
+
+- This runbook assumes telemetry collection is already running continuously (e.g. via `systemd --user` units like `gpu-telemetry.service` and `gpu-telemetry-flush.timer`). Benchmark scripts primarily update `status.json` (`status_tag`/`status_memo`) so you can filter telemetry later.
+
 ## Hardware (BOM)
 
 - **Host**: Minisforum X1 AI
@@ -179,6 +183,62 @@ This repo does not include `gpu-burn` source code. It expects:
 - `run_gpuburn.sh` updates `status.json` automatically and can include pre-idle baseline and post-burn cooldown
 - It can also set a final `prod` status for normal usage
 - Logs are written under `./logs/`
+
+This assumes the telemetry collector is running in the background during the benchmark.
+
+### 4.3 LLM benchmark (Ollama coding bench)
+
+This repo includes a helper script to run multiple Ollama models while tagging `status_tag`/`status_memo` so you can later filter telemetry plots. CSV output is optional.
+
+- Script: `bin/run_ollama_coding_bench.sh`
+- Output (optional): `./bench_results/bench_<model>.csv` by default (disable with `--no-csv`)
+- Model selection: `GET /api/tags` and filter by `--coding-regex` (default: `(coder|starcoder|code)`) plus baseline models
+- Execution order: selected models are sorted by size (small -> large) and de-duplicated by digest
+- Telemetry tagging:
+  - pre/post/cooldown are tagged as `idle` with configurable memos
+  - the benchmark phase is tagged as `bench` with memo: `ollama_<model>`
+
+Prerequisites:
+
+- Ollama is running (default: `http://127.0.0.1:11434`)
+- Tools: `curl`, `jq`, `awk`, `sed`
+- `status.json` exists (created from `status.json.example` if missing)
+
+Run (telemetry tagging only; recommended when telemetry collection is already running via timer):
+
+```bash
+./bin/run_ollama_coding_bench.sh --no-csv
+```
+
+Common options:
+
+```bash
+./bin/run_ollama_coding_bench.sh \
+  --no-csv \
+  --repeat 5 \
+  --num-predict 768 \
+  --temperature 0 \
+  --cooldown-sec 900 \
+  --out-dir ./bench_results
+```
+
+Inspect selected models without running:
+
+```bash
+./bin/run_ollama_coding_bench.sh --dry-run
+```
+
+CSV schema (per model; when CSV output is enabled):
+
+- `model`
+- `run`
+- `prompt_id`
+- `load_s`
+- `prompt_tps`
+- `gen_tps`
+- `total_s`
+- `prompt_tokens`
+- `gen_tokens`
 
 ## 5. Verify results
 
