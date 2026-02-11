@@ -332,6 +332,106 @@ uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=100%" --
 uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=25%" --out docs/images/gpu-temp-fan25.png
 ```
 
+### 5.4 Grafana dashboard
+
+Telemetry data can be visualized with Grafana. This repo includes a dashboard template at `grafana/gpu-telemetry.json` for PostgreSQL datasources.
+
+![GPU Telemetry Dashboard](images/grafana-gpu-telemetry.png)
+
+#### Panel overview
+
+| Panel | Type | Description |
+|-------|------|-------------|
+| Current Temperature | stat | Latest GPU temp (color thresholds: 60/75/85) |
+| Current Status | stat | Current status_tag (IDLE / PROD / BENCH) |
+| Max Temp | stat | Maximum temperature in selected range |
+| Avg Temp | stat | Average temperature in selected range |
+| GPU | stat | GPU model name |
+| Total Samples | stat | Sample count in selected range |
+| GPU Temperature | timeseries | Temperature time series (threshold lines at 75/85) |
+| Status Timeline | state-timeline | idle/prod/bench transition timeline |
+| Temperature by Status | timeseries | Temperature scatter by status (color-coded) |
+| Temperature Distribution by Status | barchart | Min/Avg/Max per status |
+| Samples by Status | piechart | Donut chart of sample counts by status |
+| Recent Status Changes | table | Status change history |
+
+#### Prerequisites
+
+- Grafana installed (tested with v11+)
+- PostgreSQL datasource configured and connected to the `telemetry` database
+
+#### Create a datasource
+
+Add a PostgreSQL datasource via Grafana UI or provisioning YAML.
+
+Provisioning example (`/etc/grafana/provisioning/datasources/telemetry.yml`):
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: gpu-telemetry
+    uid: gpu-telemetry-ds
+    type: postgres
+    access: proxy
+    url: <DB_HOST>:<DB_PORT>
+    user: <DB_USER>
+    database: telemetry
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: <DB_PASSWORD>
+```
+
+#### Import the dashboard
+
+Replace `${GRAFANA_DS_UID}` in the template JSON with your datasource UID before importing.
+
+Method A: Import via Grafana HTTP API
+
+```bash
+# Look up the datasource UID
+DS_UID=$(curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+  http://<GRAFANA_HOST>:3000/api/datasources/name/gpu-telemetry \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['uid'])")
+
+# Replace placeholder UID, wrap in API envelope, and import
+sed "s/\${GRAFANA_DS_UID}/${DS_UID}/g" grafana/gpu-telemetry.json \
+  | python3 -c "
+import sys, json
+dash = json.load(sys.stdin)
+payload = {'dashboard': dash, 'overwrite': True}
+json.dump(payload, sys.stdout)
+" \
+  | curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+      -X POST http://<GRAFANA_HOST>:3000/api/dashboards/db \
+      -H 'Content-Type: application/json' \
+      -d @-
+
+# Verify the import
+curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+  http://<GRAFANA_HOST>:3000/api/dashboards/uid/gpu-telemetry \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('OK:', d['meta']['url'])"
+```
+
+Method B: Import via Grafana UI
+
+1. Log in to Grafana
+2. Left menu -> Dashboards -> New -> Import
+3. Paste the contents of `grafana/gpu-telemetry.json` (replace `${GRAFANA_DS_UID}` with your datasource UID first)
+4. Click Import
+
+#### Template variables
+
+- **Host**: dropdown populated from the `host` column in `telemetry.gpu_telemetry`
+
+#### Defaults
+
+- Time range: last 6 hours
+- Auto-refresh: 30 seconds
+- Timezone: browser local time (`browser`)
+
 ## 6. Spool and flush
 
 - `bin/collect_once.py` spools to `spool/` when DB insert fails

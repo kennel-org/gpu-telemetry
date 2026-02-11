@@ -331,6 +331,106 @@ uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=100%" --
 uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=25%" --out docs/images/gpu-temp-fan25.png
 ```
 
+### 5.4 Grafana ダッシュボード
+
+テレメトリデータを Grafana で可視化できます。このリポジトリには、PostgreSQL データソース用のダッシュボードテンプレート `grafana/gpu-telemetry.json` が含まれています。
+
+![GPU Telemetry Dashboard](images/grafana-gpu-telemetry.png)
+
+#### パネル構成
+
+| パネル | 種別 | 内容 |
+|--------|------|------|
+| Current Temperature | stat | 最新の GPU 温度（閾値: 60/75/85 で色変化） |
+| Current Status | stat | 現在の status_tag（IDLE / PROD / BENCH） |
+| Max Temp | stat | 選択期間の最高温度 |
+| Avg Temp | stat | 選択期間の平均温度 |
+| GPU | stat | GPU 名 |
+| Total Samples | stat | 選択期間のサンプル数 |
+| GPU Temperature | timeseries | 温度の時系列グラフ（75/85 の閾値線付き） |
+| Status Timeline | state-timeline | idle/prod/bench の遷移タイムライン |
+| Temperature by Status | timeseries | ステータス別の温度（散布図、色分け） |
+| Temperature Distribution by Status | barchart | ステータス別 Min/Avg/Max |
+| Samples by Status | piechart | ステータス別サンプル数（ドーナツチャート） |
+| Recent Status Changes | table | ステータス変更履歴 |
+
+#### 前提
+
+- Grafana がインストール済み（動作確認: v11 以上）
+- PostgreSQL データソースが作成済みで、`telemetry` データベースに接続できる
+
+#### データソースの作成
+
+Grafana の UI またはプロビジョニング YAML で PostgreSQL データソースを追加します。
+
+プロビジョニング例（`/etc/grafana/provisioning/datasources/telemetry.yml`）:
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: gpu-telemetry
+    uid: gpu-telemetry-ds
+    type: postgres
+    access: proxy
+    url: <DB_HOST>:<DB_PORT>
+    user: <DB_USER>
+    database: telemetry
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: <DB_PASSWORD>
+```
+
+#### ダッシュボードのインポート
+
+テンプレート JSON 内の `${GRAFANA_DS_UID}` を、作成したデータソースの UID に置換してからインポートします。
+
+方法 A: Grafana HTTP API でインポート
+
+```bash
+# データソース UID を確認
+DS_UID=$(curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+  http://<GRAFANA_HOST>:3000/api/datasources/name/gpu-telemetry \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['uid'])")
+
+# テンプレートの UID を置換し、API ラッパーで包んでインポート
+sed "s/\${GRAFANA_DS_UID}/${DS_UID}/g" grafana/gpu-telemetry.json \
+  | python3 -c "
+import sys, json
+dash = json.load(sys.stdin)
+payload = {'dashboard': dash, 'overwrite': True}
+json.dump(payload, sys.stdout)
+" \
+  | curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+      -X POST http://<GRAFANA_HOST>:3000/api/dashboards/db \
+      -H 'Content-Type: application/json' \
+      -d @-
+
+# インポート結果を確認
+curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+  http://<GRAFANA_HOST>:3000/api/dashboards/uid/gpu-telemetry \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('OK:', d['meta']['url'])"
+```
+
+方法 B: Grafana UI からインポート
+
+1. Grafana にログイン
+2. 左メニュー → Dashboards → New → Import
+3. `grafana/gpu-telemetry.json` の内容を貼り付け（事前に `${GRAFANA_DS_UID}` をデータソースの UID に置換してください）
+4. Import をクリック
+
+#### テンプレート変数
+
+- **Host**: `telemetry.gpu_telemetry` テーブルの `host` カラムからドロップダウンで選択
+
+#### デフォルト設定
+
+- 時間範囲: 過去 6 時間
+- 自動リフレッシュ: 30 秒
+- タイムゾーン: ブラウザ依存（`browser`）
+
 ## 6. スプール（DB停止時の退避）と flush
 
 - `bin/collect_once.py` は DB INSERT 失敗時、`spool/` に JSON を退避します
