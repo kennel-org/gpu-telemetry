@@ -48,3 +48,7 @@ uv run ./bin/plot_temp.py --hours 24 --exclude-prod \
 ### Setup
 
 ![Setup](docs/images/setup.png)
+
+### Grafana dashboard
+
+![Grafana GPU telemetry dashboard](docs/images/grafana-gpu-telemetry.png)
