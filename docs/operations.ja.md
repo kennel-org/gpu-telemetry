@@ -25,8 +25,10 @@
 - Minisforum X1 AI 32GB/1TB SSD ¥107,993-
 - Minisforum DEG1 eGPU Dock ¥11,381-
 - 600W ATX電源 ¥4,598-
-- 秋月 12cm ファン ¥450-
+- 秋月 DCファン YDH9225C12F（92×92×25mm, 12V）¥450-
   - https://akizukidenshi.com/catalog/g/g114359/
+- PWM ミニ DC モータ スピードコントローラー（DC 5V-35V / 5A）
+  - https://amzn.asia/d/00DUdF1a
 
 ## 前提条件
 

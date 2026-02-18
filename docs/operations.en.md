@@ -25,8 +25,10 @@ Reference prices (as of Dec 2025):
 - Minisforum X1 AI 32GB/1TB SSD ¥107,993-
 - Minisforum DEG1 eGPU Dock ¥11,381-
 - 600W ATX PSU ¥4,598-
-- Akizuki 12cm fan ¥450-
+- Akizuki DC fan YDH9225C12F (92×92×25mm, 12V) ¥450-
   - https://akizukidenshi.com/catalog/g/g114359/
+- PWM mini DC motor speed controller (DC 5V-35V / 5A)
+  - https://amzn.asia/d/00DUdF1a
 
 ## Prerequisites
 
