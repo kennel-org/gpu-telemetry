@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
+import shlex
 import socket
 import subprocess
 import uuid
@@ -14,9 +16,23 @@ REPO_DIR = Path(__file__).resolve().parent.parent
 STATUS_FILE = REPO_DIR / "status.json"
 SPOOL_DIR = REPO_DIR / "spool"
 
+# WSL2 hosts keep nvidia-smi under /usr/lib/wsl/lib/ which is often absent from PATH
+_NVIDIA_SMI_DETECT = (
+    "command -v nvidia-smi 2>/dev/null || echo /usr/lib/wsl/lib/nvidia-smi"
+)
+
 
 def run(cmd: list[str]) -> str:
     return subprocess.check_output(cmd, text=True).strip()
+
+
+def run_remote(args: list[str], remote_host: str) -> str:
+    args_str = " ".join(shlex.quote(a) for a in args)
+    # Pass a single shell string so SSH doesn't split it on spaces before sending
+    shell_cmd = f'NSMI=$({_NVIDIA_SMI_DETECT}); "$NSMI" {args_str}'
+    return subprocess.check_output(
+        ["ssh", remote_host, shell_cmd], text=True
+    ).strip()
 
 
 def load_status() -> tuple[str | None, str | None]:
@@ -34,14 +50,20 @@ def atomic_write_json(path: Path, obj: dict) -> None:
     tmp.replace(path)
 
 
-def build_payload() -> dict:
-    host = socket.gethostname()
+def build_payload(remote_host: str | None = None) -> dict:
+    if remote_host:
+        nvidia_smi = lambda args: run_remote(args, remote_host)
+        host = remote_host
+    else:
+        nvidia_smi = lambda args: run(["nvidia-smi"] + args)
+        host = socket.gethostname()
+
     ts = datetime.now(timezone.utc)
     status_tag, status_memo = load_status()
 
     # Lightweight fields (fast)
     q = "uuid,pci.bus_id,name,temperature.gpu"
-    out = run(["nvidia-smi", f"--query-gpu={q}", "--format=csv,noheader,nounits"])
+    out = nvidia_smi([f"--query-gpu={q}", "--format=csv,noheader,nounits"])
 
     gpus = []
     for line in out.splitlines():
@@ -63,7 +85,7 @@ def build_payload() -> dict:
         )
 
     # Heavy raw snapshot (kept as XML string inside JSON)
-    raw_xml = run(["nvidia-smi", "-q", "-x"])
+    raw_xml = nvidia_smi(["-q", "-x"])
     raw_obj = {"nvidia_smi_q_x": raw_xml}
 
     return {
@@ -124,9 +146,21 @@ def spool_payload(payload: dict, reason: str) -> Path:
     return path
 
 
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Collect GPU telemetry and insert into DB")
+    p.add_argument(
+        "--remote-host",
+        metavar="HOST",
+        default=None,
+        help="SSH target to collect from (omit for local collection)",
+    )
+    return p.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     load_dotenv(REPO_DIR / ".env")
-    payload = build_payload()
+    payload = build_payload(remote_host=args.remote_host)
 
     try:
         insert_payload(payload)
