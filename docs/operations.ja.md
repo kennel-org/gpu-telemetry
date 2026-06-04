@@ -16,7 +16,7 @@
 
 - **Host**: Minisforum X1 AI
 - **eGPU Dock**: DEG1 eGPU
-- **GPU**: NVIDIA Tesla P40
+- **GPU**: NVIDIA Tesla P40 × 2（`01:00.0` / `07:00.0`）
 - **電源**: 玄人志向 600W ATX電源
 
 参考価格（2025年12月時点）:
@@ -349,7 +349,7 @@ uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=25%" --o
 | Avg Temp | stat | 選択期間の平均温度 |
 | GPU | stat | GPU 名 |
 | Total Samples | stat | 選択期間のサンプル数 |
-| GPU Temperature | timeseries | 温度の時系列グラフ（75/85 の閾値線付き） |
+| GPU Temperature | timeseries | 全GPU の温度時系列グラフ（GPU ごとに別系列。75/85 の閾値線付き） |
 | Status Timeline | state-timeline | idle/prod/bench の遷移タイムライン |
 | Temperature by Status | timeseries | ステータス別の温度（散布図、色分け） |
 | Temperature Distribution by Status | barchart | ステータス別 Min/Avg/Max |
@@ -387,7 +387,7 @@ datasources:
 
 #### ダッシュボードのインポート
 
-テンプレート JSON 内の `${GRAFANA_DS_UID}` を、作成したデータソースの UID に置換してからインポートします。
+テンプレートには Grafana の datasource input 定義が含まれます。UI インポート時はデータソース選択プロンプトが表示されます。HTTP API で直接投入する場合は、従来どおり `${GRAFANA_DS_UID}` を作成したデータソースの UID に置換してからインポートします。
 
 方法 A: Grafana HTTP API でインポート
 
@@ -414,18 +414,27 @@ json.dump(payload, sys.stdout)
 curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
   http://<GRAFANA_HOST>:3000/api/dashboards/uid/gpu-telemetry \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print('OK:', d['meta']['url'])"
+
+# 保存されたダッシュボードに未置換プレースホルダが残っていないことを確認
+curl -fSs -u <GRAFANA_USER>:<GRAFANA_PASSWORD> \
+  http://<GRAFANA_HOST>:3000/api/dashboards/uid/gpu-telemetry \
+  | python3 -c 'import sys,json; s=json.dumps(json.load(sys.stdin)["dashboard"]); print("OK: datasource placeholder resolved" if "${GRAFANA_DS_UID}" not in s else "ERROR: unresolved datasource placeholder remains")'
 ```
 
 方法 B: Grafana UI からインポート
 
 1. Grafana にログイン
 2. 左メニュー → Dashboards → New → Import
-3. `grafana/gpu-telemetry.json` の内容を貼り付け（事前に `${GRAFANA_DS_UID}` をデータソースの UID に置換してください）
-4. Import をクリック
+3. `grafana/gpu-telemetry.json` をアップロードまたは内容を貼り付け
+4. `telemetry` datasource input が表示されたら、対象の PostgreSQL データソースに割り当てる
+5. Import をクリック
+
+UI で datasource input が表示されない場合や、API で直接投入する場合は、事前に `${GRAFANA_DS_UID}` を実際の UID に置換してください。
 
 #### テンプレート変数
 
 - **Host**: `telemetry.gpu_telemetry` テーブルの `host` カラムからドロップダウンで選択
+- **GPU**: 選択した Host に紐づく GPU を PCI バス ID（例: `00000000:01:00.0`）で選択。stat パネルやフィルタ付きグラフに適用される。GPU Temperature グラフは選択に関わらず全 GPU を同時表示する
 
 #### デフォルト設定
 

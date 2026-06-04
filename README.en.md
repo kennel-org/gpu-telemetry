@@ -3,7 +3,7 @@
 GPU telemetry collector for Linux hosts with NVIDIA GPUs.
 This repo stores telemetry in PostgreSQL and provides helper scripts to run `gpu-burn` with telemetry status tagging.
 
-Primary use case: continuous GPU temperature monitoring on Minisforum X1 AI + DEG1 eGPU + Tesla P40, especially during stress tests such as `gpu-burn`.
+Primary use case: continuous GPU temperature monitoring on Minisforum X1 AI + DEG1 eGPU + Tesla P40 × 2, especially during stress tests such as `gpu-burn`. Supports multi-GPU configurations — each GPU is collected and stored independently.
 
 ## What this repository provides
 

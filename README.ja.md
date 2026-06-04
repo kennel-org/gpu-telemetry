@@ -3,7 +3,7 @@
 NVIDIA GPU を搭載した Linux ホスト向けの GPU テレメトリ収集ツールです。
 PostgreSQL に保存するテレメトリ収集と、`gpu-burn` を状態タグ付きで実行する補助スクリプトを提供します。
 
-主用途は、Minisforum X1 AI + DEG1 eGPU + Tesla P40 の構成で `gpu-burn` 等の負荷時に GPU 温度を継続監視することです。
+主用途は、Minisforum X1 AI + DEG1 eGPU + Tesla P40 × 2 の構成で `gpu-burn` 等の負荷時に GPU 温度を継続監視することです。マルチ GPU 構成にも対応しており、同一ホストに複数 GPU がある場合でも GPU ごとに正しくテレメトリを収集します。
 
 ## このリポジトリが提供するもの
 

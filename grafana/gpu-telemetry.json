@@ -1,4 +1,14 @@
 {
+  "__inputs": [
+    {
+      "name": "GRAFANA_DS_UID",
+      "label": "telemetry",
+      "description": "PostgreSQL datasource for the telemetry database",
+      "type": "datasource",
+      "pluginId": "grafana-postgresql-datasource",
+      "pluginName": "PostgreSQL"
+    }
+  ],
   "annotations": {
     "list": [
       {
@@ -75,7 +85,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT temp_c AS value FROM telemetry.gpu_telemetry WHERE host = '$host' ORDER BY ts DESC LIMIT 1;",
+          "rawSql": "SELECT temp_c AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' ORDER BY ts DESC LIMIT 1;",
           "refId": "A"
         }
       ],
@@ -143,11 +153,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT status_tag AS value FROM telemetry.gpu_telemetry WHERE host = '$host' ORDER BY ts DESC LIMIT 1;",
+          "rawSql": "SELECT COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' ORDER BY ts DESC LIMIT 1;",
           "refId": "A"
         }
       ],
-      "title": "Current Status",
+      "title": "Current Perf Mode",
       "type": "stat"
     },
     {
@@ -204,7 +214,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT MAX(temp_c) AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT MAX(temp_c) AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo();",
           "refId": "A"
         }
       ],
@@ -265,7 +275,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(temp_c)::numeric, 1) AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT ROUND(AVG(temp_c)::numeric, 1) AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo();",
           "refId": "A"
         }
       ],
@@ -318,7 +328,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT gpu_name AS value FROM telemetry.gpu_telemetry WHERE host = '$host' ORDER BY ts DESC LIMIT 1;",
+          "rawSql": "SELECT gpu_name AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' ORDER BY ts DESC LIMIT 1;",
           "refId": "A"
         }
       ],
@@ -371,7 +381,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT COUNT(*)::bigint AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo();",
+          "rawSql": "SELECT COUNT(*)::bigint AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo();",
           "refId": "A"
         }
       ],
@@ -446,7 +456,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, temp_c AS \"Temperature\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, temp_c AS value, pci_bus_id AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts, pci_bus_id;",
           "refId": "A"
         }
       ],
@@ -517,11 +527,11 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, status_tag AS \"Status\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS \"Perf Mode\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
           "refId": "A"
         }
       ],
-      "title": "Status Timeline",
+      "title": "Perf Mode Timeline",
       "type": "state-timeline"
     },
     {
@@ -622,21 +632,11 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, temp_c AS \"idle\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND status_tag = 'idle' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
-          "refId": "idle"
-        },
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, temp_c AS \"prod\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND status_tag = 'prod' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
-          "refId": "prod"
-        },
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, temp_c AS \"bench\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND status_tag = 'bench' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
-          "refId": "bench"
+          "rawSql": "SELECT ts AS time, temp_c AS value, COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
+          "refId": "A"
         }
       ],
-      "title": "Temperature by Status",
+      "title": "Temperature by Perf Mode",
       "type": "timeseries"
     },
     {
@@ -687,11 +687,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT status_tag AS \"Status\", ROUND(AVG(temp_c)::numeric, 1) AS \"Avg\", MIN(temp_c) AS \"Min\", MAX(temp_c) AS \"Max\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY status_tag ORDER BY status_tag;",
+          "rawSql": "SELECT COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS \"Perf Mode\", ROUND(AVG(temp_c)::numeric, 1) AS \"Avg\", MIN(temp_c) AS \"Min\", MAX(temp_c) AS \"Max\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
-      "title": "Temperature Distribution by Status",
+      "title": "Temperature Distribution by Perf Mode",
       "type": "barchart"
     },
     {
@@ -782,11 +782,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT status_tag AS \"Status\", COUNT(*)::bigint AS \"Samples\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY status_tag ORDER BY status_tag;",
+          "rawSql": "SELECT COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS \"Perf Mode\", COUNT(*)::bigint AS \"Samples\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
-      "title": "Samples by Status",
+      "title": "Samples by Perf Mode",
       "type": "piechart"
     },
     {
@@ -844,11 +844,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT ts AS \"Time\", status_tag AS \"Status\", status_memo AS \"Memo\", temp_c AS \"Temp\" FROM ( SELECT ts, status_tag, status_memo, temp_c, LAG(status_tag) OVER (ORDER BY ts) AS prev_tag FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() ) sub WHERE status_tag IS DISTINCT FROM prev_tag ORDER BY ts DESC LIMIT 50;",
+          "rawSql": "SELECT ts AS \"Time\", perf_mode AS \"Perf Mode\", status_memo AS \"Memo\", temp_c AS \"Temp\" FROM ( SELECT ts, temp_c, status_memo, perf_mode, LAG(perf_mode) OVER (ORDER BY ts) AS prev_perf_mode FROM ( SELECT ts, temp_c, status_memo, COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS perf_mode FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ) base ) sub WHERE perf_mode IS DISTINCT FROM prev_perf_mode ORDER BY ts DESC LIMIT 50;",
           "refId": "A"
         }
       ],
-      "title": "Recent Status Changes",
+      "title": "Recent Perf Mode Changes",
       "type": "table"
     }
   ],
@@ -871,6 +871,19 @@
         "name": "host",
         "query": "SELECT DISTINCT host FROM telemetry.gpu_telemetry ORDER BY host;",
         "refresh": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${GRAFANA_DS_UID}"
+        },
+        "definition": "SELECT pci_bus_id AS __text, gpu_uuid AS __value FROM (SELECT DISTINCT gpu_uuid, pci_bus_id FROM telemetry.gpu_telemetry WHERE host = '$host' ORDER BY pci_bus_id) t;",
+        "label": "GPU",
+        "name": "gpu_uuid",
+        "query": "SELECT pci_bus_id AS __text, gpu_uuid AS __value FROM (SELECT DISTINCT gpu_uuid, pci_bus_id FROM telemetry.gpu_telemetry WHERE host = '$host' ORDER BY pci_bus_id) t;",
+        "refresh": 2,
         "type": "query"
       }
     ]
