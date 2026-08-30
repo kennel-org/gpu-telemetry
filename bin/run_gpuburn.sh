@@ -204,7 +204,33 @@ cleanup() {
   "${STATUS_CMD}" "${FINAL_TAG}" "${final_memo}" >/dev/null 2>&1 || true
   log "Status set to ${FINAL_TAG}"
 }
-trap cleanup EXIT INT TERM
+
+# gpu-burn reprints its progress line continuously, and when a GPU dies it does so in
+# a tight loop. One such run on 2026-08-30 left an 899 MB log of 8.5M lines in which a
+# single line appeared 283,990 times. It gzips to 0.34%, so compress rather than filter:
+# the log stays byte-for-byte recoverable with zcat/zless/zgrep.
+LOG_COMPRESSED=0
+compress_log() {
+  set +e
+  [[ "${LOG_COMPRESSED}" == "1" ]] && return 0
+  [[ -f "${LOG_FILE}" ]] || return 0
+  LOG_COMPRESSED=1
+  if [[ -e "${LOG_FILE}.gz" ]]; then
+    warn "Not compressing, ${LOG_FILE}.gz already exists"
+    return 0
+  fi
+  if gzip -9 -- "${LOG_FILE}"; then
+    log "Log compressed: ${LOG_FILE}.gz ($(du -h "${LOG_FILE}.gz" 2>/dev/null | cut -f1)) — read with: zless ${LOG_FILE}.gz"
+  else
+    warn "Log compression failed; left uncompressed: ${LOG_FILE}"
+  fi
+}
+
+# Compress only on EXIT. On Ctrl+C the INT handler runs and the script continues on to
+# the post-run diagnostics, which append to LOG_FILE — compressing there would leave a
+# stray uncompressed remnant beside the archive.
+trap cleanup INT TERM
+trap 'cleanup; compress_log' EXIT
 
 # --- Pre idle (optional) ---
 if [[ "${PRE_IDLE_SEC}" != "0" ]]; then

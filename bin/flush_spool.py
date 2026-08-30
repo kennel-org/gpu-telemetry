@@ -6,6 +6,8 @@ from pathlib import Path
 import psycopg
 from dotenv import load_dotenv
 
+from nvsmi_parse import EMPTY_METRICS, METRIC_COLUMNS, metrics_by_uuid
+
 REPO_DIR = Path(__file__).resolve().parent.parent
 SPOOL_DIR = REPO_DIR / "spool"
 
@@ -23,13 +25,27 @@ def dsn_from_env() -> str:
 
 def insert_payload(cur, payload: dict) -> None:
     ts = payload["ts"].replace("Z", "+00:00")
+    raw_json = payload.get("raw_json", {})
+    # Re-derive metrics from the snapshot rather than trusting the spool file:
+    # files written before the metric columns existed carry only raw_json.
+    by_uuid = metrics_by_uuid(raw_json.get("nvidia_smi_q_x", ""))
+
     for g in payload.get("gpus", []):
+        m = by_uuid.get(g["gpu_uuid"], EMPTY_METRICS)
+        metrics = tuple(
+            json.dumps(m[col], ensure_ascii=False) if col == "processes" and m.get(col) is not None
+            else m.get(col)
+            for col in METRIC_COLUMNS
+        )
         cur.execute(
             """
             insert into telemetry.gpu_telemetry
-              (ts, host, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag, status_memo, raw_json)
+              (ts, host, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag, status_memo, raw_json,
+               gpu_util_pct, mem_util_pct, mem_used_mib, mem_total_mib, power_w,
+               fan_pct, sm_clock_mhz, perf_state, processes)
             values
-              (%s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+              (%s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+               %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             on conflict (ts, host, gpu_uuid) do nothing
             """,
             (
@@ -41,8 +57,9 @@ def insert_payload(cur, payload: dict) -> None:
                 g.get("temp_c"),
                 payload.get("status_tag"),
                 payload.get("status_memo"),
-                json.dumps(payload.get("raw_json", {}), ensure_ascii=False),
-            ),
+                json.dumps(raw_json, ensure_ascii=False),
+            )
+            + metrics,
         )
 
 

@@ -92,6 +92,10 @@ uv sync
 ./bin/init_db.sh
 ```
 
+This applies every SQL file under `sql/` in numeric order. Each file is idempotent
+(`IF NOT EXISTS`), so the same command both initialises a fresh DB and migrates an
+existing one.
+
 ## 2. Connectivity test (one-shot)
 
 ```bash
@@ -184,7 +188,19 @@ This repo does not include `gpu-burn` source code. It expects:
 
 - `run_gpuburn.sh` updates `status.json` automatically and can include pre-idle baseline and post-burn cooldown
 - It can also set a final `prod` status for normal usage
-- Logs are written under `./logs/`
+- Logs are saved under `./logs/` and **gzipped automatically on exit**
+  (`gpu-burn-<STAMP>-<TAG>.log.gz`)
+
+```bash
+zless  logs/gpu-burn-20260830-150900-gpu0-fan75-current.log.gz
+zgrep -c "errors: 0" logs/gpu-burn-*.log.gz
+```
+
+  gpu-burn rewrites its progress line with `\r` continuously, and **when a GPU fails it
+  does so in a tight loop**. A run on 2026-08-30 where GPU 1 `DIED` reached 899 MB across
+  8.5M lines, one of which appeared 283,990 times. It gzips to 0.34% (3.1 MB), so the log
+  is compressed rather than filtered — `zcat` recovers it byte for byte. An existing `.gz`
+  is never overwritten; the script warns instead.
 
 This assumes the telemetry collector is running in the background during the benchmark.
 
@@ -294,6 +310,50 @@ order by ts desc
 limit 200;
 ```
 
+What the GPU was actually running lives in `processes` (jsonb).
+
+```sql
+-- Processes on the GPU as of the newest sample
+select
+  p->>'name'            as process,
+  (p->>'pid')::int      as pid,
+  p->>'type'            as type,      -- C = compute, G = graphics
+  (p->>'used_mib')::int as vram_mib
+from (
+  select processes
+  from telemetry.gpu_telemetry
+  where host = 'x1ai'
+  order by ts desc
+  limit 1
+) latest,
+lateral jsonb_array_elements(latest.processes) p
+order by vram_mib desc nulls last;
+```
+
+```sql
+-- Processes that held VRAM over a window, biggest consumers first
+select
+  p->>'name'                  as process,
+  max((p->>'used_mib')::int)  as peak_vram_mib,
+  min(ts)                     as first_seen,
+  max(ts)                     as last_seen
+from telemetry.gpu_telemetry,
+     lateral jsonb_array_elements(processes) p
+where host = 'x1ai'
+  and ts >= now() - interval '24 hours'
+group by 1
+order by 2 desc nulls last;
+```
+
+```sql
+-- Utilisation / VRAM / power time series, per GPU
+select ts, pci_bus_id, gpu_util_pct, mem_used_mib, power_w, perf_state
+from telemetry.gpu_telemetry
+where host = 'x1ai'
+  and ts >= now() - interval '1 hour'
+order by ts desc, pci_bus_id;
+```
+
 ### 5.3 Temperature plot (save PNG)
 
 This script queries the DB for a selected time range and saves a PNG plot.
@@ -345,17 +405,27 @@ Telemetry data can be visualized with Grafana. This repo includes a dashboard te
 | Panel | Type | Description |
 |-------|------|-------------|
 | Current Temperature | stat | Latest GPU temp (color thresholds: 60/75/85) |
-| Current Status | stat | Current status_tag (IDLE / PROD / BENCH) |
+| Current Perf Mode | stat | Latest `perf_state` (P0 / P2 / P8) |
 | Max Temp | stat | Maximum temperature in selected range |
 | Avg Temp | stat | Average temperature in selected range |
 | GPU | stat | GPU model name |
 | Total Samples | stat | Sample count in selected range |
+| Current GPU Utilization | stat | Latest GPU utilisation |
+| Current VRAM Used | stat | Latest VRAM usage |
+| Current Power Draw | stat | Latest power draw |
+| Processes on GPU | stat | Number of processes on the GPU in the newest sample |
 | GPU Temperature | timeseries | Temperature time series for all GPUs as separate series (threshold lines at 75/85) |
-| Status Timeline | state-timeline | idle/prod/bench transition timeline |
-| Temperature by Status | timeseries | Temperature scatter by status (color-coded) |
-| Temperature Distribution by Status | barchart | Min/Avg/Max per status |
-| Samples by Status | piechart | Donut chart of sample counts by status |
-| Recent Status Changes | table | Status change history |
+| GPU Utilization | timeseries | Utilisation time series for all GPUs |
+| VRAM Used | timeseries | VRAM usage time series for all GPUs |
+| Power Draw | timeseries | Power draw time series for all GPUs |
+| Processes on GPU (latest sample) | table | Process list of the newest sample (PID / type / VRAM) |
+| Top Processes in Range | table | Processes that held VRAM in range, by peak usage |
+| VRAM by Process | timeseries | Per-process VRAM usage over time |
+| Perf Mode Timeline | state-timeline | P0/P2/P8 transition timeline |
+| Temperature by Perf Mode | timeseries | Temperature by perf state (color-coded) |
+| Temperature Distribution by Perf Mode | barchart | Min/Avg/Max per perf state |
+| Samples by Perf Mode | piechart | Donut chart of sample counts by perf state |
+| Recent Perf Mode Changes | table | Perf state change history |
 
 #### Prerequisites
 
@@ -482,6 +552,20 @@ systemctl --user restart gpu-telemetry-flush.timer
 ### 8.3 DB size grows too fast
 
 - `bin/collect_once.py` stores `nvidia-smi -q -x` XML as a string inside `raw_json` (jsonb) (heavy)
+- Nearly all of the size is TOAST. To see the split:
+
+```sql
+select pg_size_pretty(pg_relation_size('telemetry.gpu_telemetry'))  as heap,
+       pg_size_pretty(pg_indexes_size('telemetry.gpu_telemetry'))   as idx,
+       (select pg_size_pretty(pg_total_relation_size(reltoastrelid))
+          from pg_class where oid = 'telemetry.gpu_telemetry'::regclass) as toast;
+```
+
+- An UPDATE that leaves `raw_json` untouched reuses the existing TOAST entries, so the
+  metric backfill (chapter 9) only grows the heap
+- Note that `raw_json` stores the whole multi-GPU snapshot redundantly on every row of
+  the sample. Shortening retention, or setting `raw_json` to `NULL` on old rows, is what
+  actually reclaims space
 - For temperature-only monitoring, consider retention/partitioning on DB side
 
 ### 8.4 Reset DB (truncate all telemetry)
@@ -499,4 +583,81 @@ set +a
 psql "host=$PGHOST port=$PGPORT dbname=$PGDATABASE user=$PGUSER sslmode=${PGSSLMODE:-prefer}" \
   -v ON_ERROR_STOP=1 \
   -c "TRUNCATE telemetry.gpu_telemetry;"
+```
+
+
+### 8.5 Sample interval is longer than configured
+
+Even with `SAMPLE_INTERVAL_SEC` set to 5, the observed interval can be far longer.
+Measure it first.
+
+```sql
+select date_trunc('hour', ts) as hr,
+       count(*)                                  as samples,
+       round(3600.0 / count(*), 1)               as avg_interval_sec,
+       round(extract(epoch from max(gap))::numeric, 1) as max_gap_sec
+from (select ts, ts - lag(ts) over (order by ts) as gap
+      from telemetry.gpu_telemetry
+      where host = 'x1ai' and pci_bus_id = '00000000:01:00.0'
+        and ts >= now() - interval '6 hours') t
+group by 1 order by 1;
+```
+
+**The usual cause is one unreachable host in `REMOTE_HOSTS`.**
+`bin/collect_loop.sh` collects every host concurrently, and the SSH invocation in
+`bin/collect_once.py` sets `ConnectTimeout=5`, so one host being down no longer delays
+the others.
+
+Before that, with sequential collection and no `ConnectTimeout` in ~/.ssh/config, a single
+unreachable host blocked the whole loop until the OS TCP timeout (~130 s).
+**This actually happened on 2026-08-30**: while `precision3680-wsl` was being renamed in
+Tailscale, the sample interval degraded from 5 s to ~144 s (max gap 973 s), leaving the
+fan-cooling validation running at the same time with unusable temperature resolution.
+
+Checking reachability:
+
+```bash
+for h in ${REMOTE_HOSTS}; do
+  echo -n "$h: "; timeout 10 ssh -o BatchMode=yes -o ConnectTimeout=5 "$h" 'echo ok' || echo NG
+done
+journalctl --user -u gpu-telemetry.service --since '1 hour ago' | grep WARN
+```
+
+An unreachable host is logged as a single `[WARN] nvidia-smi collection failed for host=...`
+line, with no traceback.
+## 9. Backfilling the metric columns
+
+`gpu_util_pct`, `mem_used_mib`, `power_w`, `perf_state`, `processes` and friends were
+added by `sql/002_add_metric_columns.sql`, so rows collected before that are NULL.
+
+The values themselves are still in the `raw_json` XML, so they can be recomputed after
+the fact. Extraction runs server-side with xpath / XMLTABLE, which avoids shipping 40 GB
+of XML to the client.
+
+```bash
+# Just report how many rows are unfilled
+uv run ./bin/backfill_metrics.py --dry-run
+
+# Last 30 days only
+uv run ./bin/backfill_metrics.py --since 2026-08-01T00:00:00+00:00
+
+# Whole history (measured ~4.8 ms/row; 3-4 hours for 5M rows, so run it detached)
+nohup uv run ./bin/backfill_metrics.py --batch-minutes 60 > logs/backfill_metrics.log 2>&1 &
+
+# Resume after an interruption
+uv run ./bin/backfill_metrics.py --resume
+```
+
+- Only rows where `gpu_util_pct IS NULL` are touched, so re-running is safe
+- The checkpoint is a single file, `logs/backfill_metrics_checkpoint.json`, overwritten in place
+- Progress is printed as `[N/M] ... elapsed=Xs eta=Ys`
+- A window whose XML fails to parse is skipped and reported as `failed_windows` at the end
+
+### Checking progress
+
+```sql
+select count(*) filter (where gpu_util_pct is not null) as filled,
+       count(*)                                         as total,
+       round(100.0 * count(*) filter (where gpu_util_pct is not null) / count(*), 2) as pct
+from telemetry.gpu_telemetry;
 ```

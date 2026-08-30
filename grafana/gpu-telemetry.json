@@ -99,25 +99,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            {
-              "options": {
-                "bench": {
-                  "color": "red",
-                  "text": "BENCH"
-                },
-                "idle": {
-                  "color": "blue",
-                  "text": "IDLE"
-                },
-                "prod": {
-                  "color": "orange",
-                  "text": "PROD"
-                }
-              },
-              "type": "value"
-            }
-          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -127,7 +108,30 @@
               }
             ]
           },
-          "unit": "none"
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "P0": {
+                  "color": "orange",
+                  "index": 0
+                },
+                "P2": {
+                  "color": "yellow",
+                  "index": 1
+                },
+                "P8": {
+                  "color": "blue",
+                  "index": 2
+                },
+                "UNKNOWN": {
+                  "color": "text",
+                  "index": 3
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -145,7 +149,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "value",
+          "fields": "/.*/",
           "values": false
         },
         "textMode": "value"
@@ -153,7 +157,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' ORDER BY ts DESC LIMIT 1;",
+          "rawSql": "SELECT COALESCE(perf_state, 'UNKNOWN') AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' ORDER BY ts DESC LIMIT 1;",
           "refId": "A"
         }
       ],
@@ -389,6 +393,246 @@
       "type": "stat"
     },
     {
+      "id": 1,
+      "type": "stat",
+      "title": "Current GPU Utilization",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT gpu_util_pct AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND gpu_util_pct IS NOT NULL ORDER BY ts DESC LIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Current VRAM Used",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT mem_used_mib AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND mem_used_mib IS NOT NULL ORDER BY ts DESC LIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Current Power Draw",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT power_w AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND power_w IS NOT NULL ORDER BY ts DESC LIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Processes on GPU",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT jsonb_array_length(processes) AS value FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND processes IS NOT NULL ORDER BY ts DESC LIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "${GRAFANA_DS_UID}"
@@ -436,7 +680,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 9
       },
       "options": {
         "legend": {
@@ -462,6 +706,336 @@
       ],
       "title": "GPU Temperature",
       "type": "timeseries"
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "GPU Utilization",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS time, gpu_util_pct AS value, pci_bus_id AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() AND gpu_util_pct IS NOT NULL ORDER BY ts, pci_bus_id;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": null,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "VRAM Used",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS time, mem_used_mib AS value, pci_bus_id AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() AND mem_used_mib IS NOT NULL ORDER BY ts, pci_bus_id;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "decimals": null,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Power Draw",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS time, power_w AS value, pci_bus_id AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND ts BETWEEN $__timeFrom() AND $__timeTo() AND power_w IS NOT NULL ORDER BY ts, pci_bus_id;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Processes on GPU (latest sample)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT p->>'name' AS \"Process\", (p->>'pid')::int AS \"PID\", p->>'type' AS \"Type\", (p->>'used_mib')::int AS \"VRAM (MiB)\" FROM ( SELECT processes FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() AND processes IS NOT NULL ORDER BY ts DESC LIMIT 1 ) latest, jsonb_array_elements(latest.processes) p ORDER BY 4 DESC NULLS LAST;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": []
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "VRAM (MiB)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Top Processes in Range",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT p->>'name' AS \"Process\", max((p->>'used_mib')::int) AS \"Peak VRAM (MiB)\", count(DISTINCT p->>'pid') AS \"PIDs\", min(ts) AS \"First Seen\", max(ts) AS \"Last Seen\" FROM telemetry.gpu_telemetry, jsonb_array_elements(processes) p WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() AND processes IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": []
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peak VRAM (MiB)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "VRAM by Process",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${GRAFANA_DS_UID}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${GRAFANA_DS_UID}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS time, (p->>'used_mib')::int AS value, p->>'name' AS metric FROM telemetry.gpu_telemetry, jsonb_array_elements(processes) p WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() AND processes IS NOT NULL ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "decimals": null,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 25,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "datasource": {
@@ -508,7 +1082,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 57
       },
       "options": {
         "alignValue": "left",
@@ -527,7 +1101,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS \"Perf Mode\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, COALESCE(perf_state, 'UNKNOWN') AS \"Perf Mode\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -612,7 +1186,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 62
       },
       "options": {
         "legend": {
@@ -632,7 +1206,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, temp_c AS value, COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, temp_c AS value, COALESCE(perf_state, 'UNKNOWN') AS metric FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -666,7 +1240,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 30
+        "y": 72
       },
       "options": {
         "barWidth": 0.9,
@@ -687,7 +1261,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS \"Perf Mode\", ROUND(AVG(temp_c)::numeric, 1) AS \"Avg\", MIN(temp_c) AS \"Min\", MAX(temp_c) AS \"Max\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT COALESCE(perf_state, 'UNKNOWN') AS \"Perf Mode\", ROUND(AVG(temp_c)::numeric, 1) AS \"Avg\", MIN(temp_c) AS \"Min\", MAX(temp_c) AS \"Max\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -757,7 +1331,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 30
+        "y": 72
       },
       "options": {
         "legend": {
@@ -782,7 +1356,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS \"Perf Mode\", COUNT(*)::bigint AS \"Samples\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT COALESCE(perf_state, 'UNKNOWN') AS \"Perf Mode\", COUNT(*)::bigint AS \"Samples\" FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -832,7 +1406,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 30
+        "y": 72
       },
       "options": {
         "cellHeight": "sm",
@@ -844,7 +1418,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT ts AS \"Time\", perf_mode AS \"Perf Mode\", status_memo AS \"Memo\", temp_c AS \"Temp\" FROM ( SELECT ts, temp_c, status_memo, perf_mode, LAG(perf_mode) OVER (ORDER BY ts) AS prev_perf_mode FROM ( SELECT ts, temp_c, status_memo, COALESCE(NULLIF(substring(raw_json->>'nvidia_smi_q_x' FROM '<performance_state>([^<]+)</performance_state>'), ''), 'UNKNOWN') AS perf_mode FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ) base ) sub WHERE perf_mode IS DISTINCT FROM prev_perf_mode ORDER BY ts DESC LIMIT 50;",
+          "rawSql": "SELECT ts AS \"Time\", perf_mode AS \"Perf Mode\", status_memo AS \"Memo\", temp_c AS \"Temp\" FROM ( SELECT ts, temp_c, status_memo, perf_mode, LAG(perf_mode) OVER (ORDER BY ts) AS prev_perf_mode FROM ( SELECT ts, temp_c, status_memo, COALESCE(perf_state, 'UNKNOWN') AS perf_mode FROM telemetry.gpu_telemetry WHERE host = '$host' AND gpu_uuid = '$gpu_uuid' AND ts BETWEEN $__timeFrom() AND $__timeTo() ) base ) sub WHERE perf_mode IS DISTINCT FROM prev_perf_mode ORDER BY ts DESC LIMIT 50;",
           "refId": "A"
         }
       ],

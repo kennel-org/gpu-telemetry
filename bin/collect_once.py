@@ -12,6 +12,8 @@ from pathlib import Path
 import psycopg
 from dotenv import load_dotenv
 
+from nvsmi_parse import EMPTY_METRICS, METRIC_COLUMNS, metrics_by_uuid
+
 REPO_DIR = Path(__file__).resolve().parent.parent
 STATUS_FILE = REPO_DIR / "status.json"
 SPOOL_DIR = REPO_DIR / "spool"
@@ -20,6 +22,18 @@ SPOOL_DIR = REPO_DIR / "spool"
 _NVIDIA_SMI_DETECT = (
     "command -v nvidia-smi 2>/dev/null || echo /usr/lib/wsl/lib/nvidia-smi"
 )
+
+# Without these, an unreachable host blocks on the OS TCP timeout (~130 s), which
+# stalls the whole sampling loop. Observed on 2026-08-30: the sample interval
+# collapsed from 5 s to ~144 s while one remote host was being renamed in Tailscale.
+SSH_OPTS = [
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=5",
+    "-o", "ServerAliveInterval=5",
+    "-o", "ServerAliveCountMax=2",
+]
+# Backstop for a host that accepts the connection but never answers.
+REMOTE_TIMEOUT_SEC = 20
 
 
 def run(cmd: list[str]) -> str:
@@ -31,7 +45,9 @@ def run_remote(args: list[str], remote_host: str) -> str:
     # Pass a single shell string so SSH doesn't split it on spaces before sending
     shell_cmd = f'NSMI=$({_NVIDIA_SMI_DETECT}); "$NSMI" {args_str}'
     return subprocess.check_output(
-        ["ssh", remote_host, shell_cmd], text=True
+        ["ssh", *SSH_OPTS, remote_host, shell_cmd],
+        text=True,
+        timeout=REMOTE_TIMEOUT_SEC,
     ).strip()
 
 
@@ -88,6 +104,12 @@ def build_payload(remote_host: str | None = None) -> dict:
     raw_xml = nvidia_smi(["-q", "-x"])
     raw_obj = {"nvidia_smi_q_x": raw_xml}
 
+    # Promote the queryable metrics out of the XML so Grafana can read columns
+    # instead of parsing a 30 KB string per row.
+    by_uuid = metrics_by_uuid(raw_xml)
+    for gpu in gpus:
+        gpu.update(by_uuid.get(gpu["gpu_uuid"], EMPTY_METRICS))
+
     return {
         "ts": ts.isoformat(),
         "host": host,
@@ -96,6 +118,15 @@ def build_payload(remote_host: str | None = None) -> dict:
         "gpus": gpus,
         "raw_json": raw_obj,
     }
+
+
+def metric_values(gpu: dict) -> tuple:
+    """Metric column values for one GPU, in METRIC_COLUMNS order."""
+    return tuple(
+        json.dumps(gpu[col], ensure_ascii=False) if col == "processes" and gpu.get(col) is not None
+        else gpu.get(col)
+        for col in METRIC_COLUMNS
+    )
 
 
 def insert_payload(payload: dict) -> None:
@@ -116,9 +147,12 @@ def insert_payload(payload: dict) -> None:
                 cur.execute(
                     """
                     insert into telemetry.gpu_telemetry
-                      (ts, host, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag, status_memo, raw_json)
+                      (ts, host, gpu_uuid, pci_bus_id, gpu_name, temp_c, status_tag, status_memo, raw_json,
+                       gpu_util_pct, mem_util_pct, mem_used_mib, mem_total_mib, power_w,
+                       fan_pct, sm_clock_mhz, perf_state, processes)
                     values
-                      (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                      (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                       %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                     on conflict (ts, host, gpu_uuid) do nothing
                     """,
                     (
@@ -131,7 +165,8 @@ def insert_payload(payload: dict) -> None:
                         payload["status_tag"],
                         payload["status_memo"],
                         json.dumps(payload["raw_json"], ensure_ascii=False),
-                    ),
+                    )
+                    + metric_values(g),
                 )
         conn.commit()
 
@@ -160,12 +195,22 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     load_dotenv(REPO_DIR / ".env")
-    payload = build_payload(remote_host=args.remote_host)
+
+    try:
+        payload = build_payload(remote_host=args.remote_host)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        target = args.remote_host or socket.gethostname()
+        print(f"[WARN] nvidia-smi collection failed for host={target}: {e}")
+        raise SystemExit(1)
 
     try:
         insert_payload(payload)
-        temp0 = payload["gpus"][0]["temp_c"] if payload["gpus"] else "NA"
-        print(f"[INFO] {payload['ts']} host={payload['host']} temp={temp0}C status={payload['status_tag']}")
+        summary = " ".join(
+            f"[{g['pci_bus_id']} {g['temp_c']}C util={g.get('gpu_util_pct')}% "
+            f"mem={g.get('mem_used_mib')}MiB procs={len(g.get('processes') or [])}]"
+            for g in payload["gpus"]
+        )
+        print(f"[INFO] {payload['ts']} host={payload['host']} status={payload['status_tag']} {summary}")
     except Exception as e:
         p = spool_payload(payload, reason=str(e))
         temp0 = payload["gpus"][0]["temp_c"] if payload["gpus"] else "NA"

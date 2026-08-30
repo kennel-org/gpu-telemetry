@@ -14,6 +14,22 @@ PostgreSQL に保存するテレメトリ収集と、`gpu-burn` を状態タグ�
 
 > 注意: このリポジトリには `gpu-burn` のソースは含みません。`~/projects/gpu-burn` に `gpu_burn` バイナリがビルド済みである前提です。
 
+## 保存している内容
+
+`telemetry.gpu_telemetry` に、1 サンプルあたり GPU 1 台につき 1 行:
+
+| カラム | 内容 |
+|---|---|
+| `ts`, `host`, `gpu_uuid` | 主キー |
+| `pci_bus_id`, `gpu_name` | GPU の識別情報 |
+| `temp_c` | 温度（°C） |
+| `gpu_util_pct`, `mem_util_pct` | 使用率（%） |
+| `mem_used_mib`, `mem_total_mib` | VRAM |
+| `power_w`, `fan_pct`, `sm_clock_mhz`, `perf_state` | 消費電力 / ファン / クロック / P-state |
+| `processes` | jsonb: GPU 上で何が動いているか — `[{"pid","type","name","used_mib"}, ...]`（`type` は C = compute、G = graphics） |
+| `status_tag`, `status_memo` | `status.json` で付ける運用タグ |
+| `raw_json` | `nvidia-smi -q -x` のスナップショット全文 |
+
 ## 運用ドキュメント
 
 - 運用: `docs/operations.ja.md`
@@ -27,7 +43,9 @@ PostgreSQL に保存するテレメトリ収集と、`gpu-burn` を状態タグ�
 - `bin/run_gpuburn.sh`（`gpu-burn` 実行 + 状態タグ）
 - `bin/init_db.sh`（スキーマ適用）
 - `bin/host_healthcheck.sh`（ホストの簡易ヘルスチェック）
-- `sql/001_init.sql`（スキーマ）
+- `sql/001_init.sql`, `sql/002_add_metric_columns.sql`（スキーマ。`init_db.sh` が順に適用）
+- `bin/nvsmi_parse.py`（`nvidia-smi -q -x` をメトリクスカラムへパース）
+- `bin/backfill_metrics.py`（カラム追加前に収集した行のバックフィル）
 
 ## ライセンス
 

@@ -12,6 +12,10 @@ PGSSLMODE="${PGSSLMODE:-prefer}"
 
 CONNINFO="host=${PGHOST} port=${PGPORT} dbname=${PGDATABASE} user=${PGUSER} sslmode=${PGSSLMODE}"
 
-echo "[INFO] Applying initial schema to db=${PGDATABASE} ..."
-psql "${CONNINFO}" -v ON_ERROR_STOP=1 -f "${HOME}/projects/gpu-telemetry/sql/001_init.sql"
+# Every file in sql/ is idempotent (IF NOT EXISTS), so applying them all in
+# order both initialises a fresh DB and migrates an existing one.
+for f in "${HOME}"/projects/gpu-telemetry/sql/*.sql; do
+    echo "[INFO] Applying $(basename "${f}") to db=${PGDATABASE} ..."
+    psql "${CONNINFO}" -v ON_ERROR_STOP=1 -f "${f}"
+done
 echo "[INFO] Done."

@@ -92,6 +92,9 @@ uv sync
 ./bin/init_db.sh
 ```
 
+`sql/` 配下の SQL を番号順に適用します。各ファイルは `IF NOT EXISTS` で冪等なので、
+新規構築でも既存 DB へのマイグレーションでも同じコマンドで済みます。
+
 ## 2. まずは単発収集で疎通確認
 
 ```bash
@@ -185,7 +188,18 @@ cp ./status.json.example ./status.json
 - `run_gpuburn.sh` は開始/終了で `status.json` を更新します
 - ベンチ前アイドル（`--pre-idle-sec`）とクールダウン（`--cooldown-sec`）を含めて、温度変化の前後を取りやすくできます
 - 最後に `prod`（通常使用）へ戻す運用にできます
-- ログは `./logs/` に保存されます
+- ログは `./logs/` に保存され、**終了時に自動で gzip 圧縮されます**（`gpu-burn-<STAMP>-<TAG>.log.gz`）
+
+```bash
+zless  logs/gpu-burn-20260830-150900-gpu0-fan75-current.log.gz
+zgrep -c "errors: 0" logs/gpu-burn-*.log.gz
+```
+
+  gpu-burn は進捗行を `\r` で上書き出力し続けるため、**GPU が故障するとタイトループで
+  同じ行を吐き続けます**。2026-08-30 に GPU 1 が `DIED` した実行では 899 MB・856万行に達し、
+  そのうち1行が283,990回繰り返されていました。gzip で 0.34%（3.1 MB）まで落ちるため、
+  内容を間引かず圧縮する方式にしています（`zcat` で完全に復元できます）。
+  既に `.gz` がある場合は上書きせず警告のみ出します。
 
 ベンチ実行中も、バックグラウンドでテレメトリ収集が動作している前提です。
 
@@ -293,6 +307,50 @@ order by ts desc
 limit 200;
 ```
 
+GPU が何を実行していたかは `processes`（jsonb）に入っています。
+
+```sql
+-- 最新サンプルで GPU 上にいるプロセス
+select
+  p->>'name'            as process,
+  (p->>'pid')::int      as pid,
+  p->>'type'            as type,      -- C = compute, G = graphics
+  (p->>'used_mib')::int as vram_mib
+from (
+  select processes
+  from telemetry.gpu_telemetry
+  where host = 'x1ai'
+  order by ts desc
+  limit 1
+) latest,
+lateral jsonb_array_elements(latest.processes) p
+order by vram_mib desc nulls last;
+```
+
+```sql
+-- 期間内に VRAM を掴んでいたプロセスを消費量順に
+select
+  p->>'name'                  as process,
+  max((p->>'used_mib')::int)  as peak_vram_mib,
+  min(ts)                     as first_seen,
+  max(ts)                     as last_seen
+from telemetry.gpu_telemetry,
+     lateral jsonb_array_elements(processes) p
+where host = 'x1ai'
+  and ts >= now() - interval '24 hours'
+group by 1
+order by 2 desc nulls last;
+```
+
+```sql
+-- 稼働率・VRAM・電力の時系列（GPU 単位）
+select ts, pci_bus_id, gpu_util_pct, mem_used_mib, power_w, perf_state
+from telemetry.gpu_telemetry
+where host = 'x1ai'
+  and ts >= now() - interval '1 hour'
+order by ts desc, pci_bus_id;
+```
+
 ### 5.3 温度変化プロット（PNG出力）
 
 DB から任意の範囲の温度推移を読み出して画像（PNG）に保存します。
@@ -344,17 +402,27 @@ uv run ./bin/plot_temp.py --hours 24 --exclude-prod --include-memo "fan=25%" --o
 | パネル | 種別 | 内容 |
 |--------|------|------|
 | Current Temperature | stat | 最新の GPU 温度（閾値: 60/75/85 で色変化） |
-| Current Status | stat | 現在の status_tag（IDLE / PROD / BENCH） |
+| Current Perf Mode | stat | 最新の `perf_state`（P0 / P2 / P8） |
 | Max Temp | stat | 選択期間の最高温度 |
 | Avg Temp | stat | 選択期間の平均温度 |
 | GPU | stat | GPU 名 |
 | Total Samples | stat | 選択期間のサンプル数 |
-| GPU Temperature | timeseries | 全GPU の温度時系列グラフ（GPU ごとに別系列。75/85 の閾値線付き） |
-| Status Timeline | state-timeline | idle/prod/bench の遷移タイムライン |
-| Temperature by Status | timeseries | ステータス別の温度（散布図、色分け） |
-| Temperature Distribution by Status | barchart | ステータス別 Min/Avg/Max |
-| Samples by Status | piechart | ステータス別サンプル数（ドーナツチャート） |
-| Recent Status Changes | table | ステータス変更履歴 |
+| Current GPU Utilization | stat | 最新の GPU 使用率 |
+| Current VRAM Used | stat | 最新の VRAM 使用量 |
+| Current Power Draw | stat | 最新の消費電力 |
+| Processes on GPU | stat | 最新サンプルで GPU 上にいるプロセス数 |
+| GPU Temperature | timeseries | 全GPU の温度時系列（GPU ごとに別系列。75/85 の閾値線付き） |
+| GPU Utilization | timeseries | 全GPU の使用率時系列 |
+| VRAM Used | timeseries | 全GPU の VRAM 使用量時系列 |
+| Power Draw | timeseries | 全GPU の消費電力時系列 |
+| Processes on GPU (latest sample) | table | 最新サンプルのプロセス一覧（PID / type / VRAM） |
+| Top Processes in Range | table | 選択期間に VRAM を掴んだプロセスを消費量順に集計 |
+| VRAM by Process | timeseries | プロセス別 VRAM 使用量の時系列 |
+| Perf Mode Timeline | state-timeline | P0/P2/P8 の遷移タイムライン |
+| Temperature by Perf Mode | timeseries | perf state 別の温度（色分け） |
+| Temperature Distribution by Perf Mode | barchart | perf state 別 Min/Avg/Max |
+| Samples by Perf Mode | piechart | perf state 別サンプル数（ドーナツチャート） |
+| Recent Perf Mode Changes | table | perf state 変更履歴 |
 
 #### 前提
 
@@ -481,6 +549,19 @@ systemctl --user restart gpu-telemetry-flush.timer
 ### 8.3 DB が重い / サイズ増加
 
 - `bin/collect_once.py` は `nvidia-smi -q -x` の XML を、`raw_json`（jsonb）内の文字列として保存します（重い）
+- サイズのほぼ全量は TOAST 側です。内訳の確認:
+
+```sql
+select pg_size_pretty(pg_relation_size('telemetry.gpu_telemetry'))  as heap,
+       pg_size_pretty(pg_indexes_size('telemetry.gpu_telemetry'))   as idx,
+       (select pg_size_pretty(pg_total_relation_size(reltoastrelid))
+          from pg_class where oid = 'telemetry.gpu_telemetry'::regclass) as toast;
+```
+
+- `raw_json` を書き換えない UPDATE は TOAST を再利用するため、メトリクスカラムの
+  バックフィル（下記 9 章）で膨らむのは heap 側だけです
+- なお `raw_json` は 1 サンプル分の全 GPU 分の XML を各行に重複保存しています。
+  保持期間の短縮や、`raw_json` を古い行から `NULL` にする運用が最も効きます
 - 温度監視目的だけなら、保持期間/インデックス/パーティション等の DB 側設計を検討してください
 
 ### 8.4 DB を全消去してやり直したい
@@ -498,4 +579,79 @@ set +a
 psql "host=$PGHOST port=$PGPORT dbname=$PGDATABASE user=$PGUSER sslmode=${PGSSLMODE:-prefer}" \
   -v ON_ERROR_STOP=1 \
   -c "TRUNCATE telemetry.gpu_telemetry;"
+```
+
+
+### 8.5 サンプリング間隔が設定値より長い
+
+`SAMPLE_INTERVAL_SEC` を 5 にしていても、実測の間隔がそれより大幅に長くなることがある。
+まず実測する。
+
+```sql
+select date_trunc('hour', ts) as hr,
+       count(*)                                  as samples,
+       round(3600.0 / count(*), 1)               as avg_interval_sec,
+       round(extract(epoch from max(gap))::numeric, 1) as max_gap_sec
+from (select ts, ts - lag(ts) over (order by ts) as gap
+      from telemetry.gpu_telemetry
+      where host = 'x1ai' and pci_bus_id = '00000000:01:00.0'
+        and ts >= now() - interval '6 hours') t
+group by 1 order by 1;
+```
+
+**最も多い原因は `REMOTE_HOSTS` のうち1台が到達不能になっていること。**
+`bin/collect_loop.sh` は各ホストを並列に収集し、`bin/collect_once.py` の SSH には
+`ConnectTimeout=5` を設定しているため、1台が落ちても他ホストのサンプルは遅れない。
+
+ただし ~/.ssh/config 側に `ConnectTimeout` が無い状態で逐次収集していた頃は、到達不能な
+ホスト1台が OS の TCP タイムアウト（約130秒）までループ全体をブロックしていた。
+**2026-08-30 に実際に発生**: `precision3680-wsl` の Tailscale 改称中、サンプル間隔が
+5 秒から約144秒（最大ギャップ973秒）に劣化し、同時刻に実施していたファン冷却検証の
+温度データが使い物にならない解像度になった。
+
+到達性の確認:
+
+```bash
+for h in ${REMOTE_HOSTS}; do
+  echo -n "$h: "; timeout 10 ssh -o BatchMode=yes -o ConnectTimeout=5 "$h" 'echo ok' || echo NG
+done
+journalctl --user -u gpu-telemetry.service --since '1 hour ago' | grep WARN
+```
+
+到達不能ホストは `[WARN] nvidia-smi collection failed for host=...` として1行だけ記録され、
+トレースバックは出ない。
+## 9. メトリクスカラムのバックフィル
+
+`gpu_util_pct` / `mem_used_mib` / `power_w` / `perf_state` / `processes` などのカラムは
+`sql/002_add_metric_columns.sql` で追加されました。それ以前に収集した行では NULL です。
+
+値そのものは `raw_json` の XML に入っているので、後から再計算できます。抽出は
+サーバ側の xpath / XMLTABLE で行うため、40 GB の XML をクライアントに転送しません。
+
+```bash
+# 何行が未充填かだけ確認する
+uv run ./bin/backfill_metrics.py --dry-run
+
+# 直近 30 日だけ
+uv run ./bin/backfill_metrics.py --since 2026-08-01T00:00:00+00:00
+
+# 全期間（実測 約4.8 ms/行。500万行で 3〜4 時間かかるので nohup 等で流す）
+nohup uv run ./bin/backfill_metrics.py --batch-minutes 60 > logs/backfill_metrics.log 2>&1 &
+
+# 中断した場合は checkpoint から再開
+uv run ./bin/backfill_metrics.py --resume
+```
+
+- 対象は `gpu_util_pct IS NULL` の行のみなので、何度実行しても安全です
+- checkpoint は `logs/backfill_metrics_checkpoint.json` の 1 ファイルを上書き更新します
+- 進捗は `[N/M] ... elapsed=Xs eta=Ys` 形式で標準出力に出ます
+- パースに失敗した時間窓はスキップして続行し、完了時に `failed_windows` として件数を報告します
+
+### 進捗確認
+
+```sql
+select count(*) filter (where gpu_util_pct is not null) as filled,
+       count(*)                                         as total,
+       round(100.0 * count(*) filter (where gpu_util_pct is not null) / count(*), 2) as pct
+from telemetry.gpu_telemetry;
 ```
